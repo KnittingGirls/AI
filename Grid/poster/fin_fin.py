@@ -12,7 +12,6 @@ mono_font_prop = fm.FontProperties(fname=mono_font_path)
 
 plt.rcParams['font.family'] = 'Malgun Gothic'  # 범례용
 
-# 이미지 및 템플릿 경로
 deep_img_path = "11_deep.jpg"
 schp_img_path = "11_schp.png"
 front_template_path = "front_template.npz"
@@ -138,7 +137,7 @@ def plot_pattern_with_legend(grid_size, outline, pattern, fill_pattern=None, col
 
     closed_outline = np.vstack([shifted_outline, shifted_outline[0]])
     ax.plot(closed_outline[:, 0], rows - closed_outline[:, 1],
-            color=color, linewidth=1.2)
+            color=color, linewidth=0.8)
 
     lx, ly = cols - 1, -10
     for i, (s, desc) in enumerate(legend_items):
