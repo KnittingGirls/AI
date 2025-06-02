@@ -2,24 +2,28 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.path import Path as MplPath
 from matplotlib.backends.backend_pdf import PdfPages
+from matplotlib import font_manager as fm
 from PIL import Image
 from collections import Counter
 
-plt.rcParams['font.family'] = 'Malgun Gothic'
+# 고정폭 폰트 설정
+mono_font_path = fm.findfont("DejaVu Sans Mono")
+mono_font_prop = fm.FontProperties(fname=mono_font_path)
 
+plt.rcParams['font.family'] = 'Malgun Gothic'  # 범례용
+
+# 이미지 및 템플릿 경로
 deep_img_path = "11_deep.jpg"
 schp_img_path = "11_schp.png"
 front_template_path = "front_template.npz"
 sleeve_template_path = "sleeve_template.npz"
 
-deep_img = np.array(Image.open(deep_img_path).convert("RGB"))
-schp_img = np.array(Image.open(schp_img_path).convert("RGB"))
-front_outline = np.load(front_template_path, allow_pickle=True)['outline']
-sleeve_outline = np.load(sleeve_template_path, allow_pickle=True)['outline']
-
 target_size = (256, 256)
 deep_img = np.array(Image.open(deep_img_path).convert("RGB").resize(target_size, Image.NEAREST))
 schp_img = np.array(Image.open(schp_img_path).convert("RGB").resize(target_size, Image.NEAREST))
+
+front_outline = np.load(front_template_path, allow_pickle=True)['outline']
+sleeve_outline = np.load(sleeve_template_path, allow_pickle=True)['outline']
 
 schp_parts = {
     "torso": (0, 128, 0),
@@ -64,22 +68,6 @@ for part in ['torso', 'left_arm', 'right_arm']:
     rgb = schp_parts[part]
     symbol = get_dominant_symbol(rgb)
     patterns_array.append(symbol_patterns[symbol])
-    
-# 예시 : 3x3 패치가 들어가는 것
-# patterns_array = [
-#     array([['|', '|', '|'],
-#            ['|', '|', '|'],
-#            ['|', '|', '|']]),  # torso
-
-#     array([['|', '|', '|'],
-#            ['|', '|', '|'],
-#            ['|', '|', '|']]),  # left_arm
-
-#     array([['|', '|', '|'],
-#            ['|', '|', '|'],
-#            ['|', '|', '|']])   # right_arm
-# ]
-# ----------------------------------------------------------------------- Array (판별 완료)
 
 def auto_scale_outline(outline, target_grid=(200, 150), margin_ratio=0.94):
     rows, cols = target_grid
@@ -91,9 +79,8 @@ def auto_scale_outline(outline, target_grid=(200, 150), margin_ratio=0.94):
     return ((outline - center) * scale + center)
 
 def inside_outline(x, y, outline):
-    return MplPath(outline).contains_point((x + 0.5, y + 0.5))
+    return MplPath(outline).contains_point((x, y))
 
-# 설명
 legend_items = [
     ("|", "겉뜨기"),
     ("―", "안뜨기"),
@@ -102,9 +89,10 @@ legend_items = [
     ("\\", "왼코 위 3코 교차뜨기 (왼코 1코 안뜨기)")
 ]
 
-def plot_pattern_with_legend(grid_size, outline, pattern, color='black'):
+def plot_pattern_with_legend(grid_size, outline, pattern, fill_pattern=None, color='black'):
     rows, cols = grid_size
-    fig, ax = plt.subplots(figsize=(8.3, 11.7))
+    fig, ax = plt.subplots(figsize=(8.3, 11.7), facecolor='white')
+    ax.set_facecolor('white')
 
     for x in range(cols + 1):
         ax.plot([x, x], [0, rows], color='gray', linewidth=0.7)
@@ -116,22 +104,41 @@ def plot_pattern_with_legend(grid_size, outline, pattern, color='black'):
     shifted_outline = outline + np.array([offset_x, offset_y])
 
     ph, pw = pattern.shape
+    filled = np.zeros((rows, cols), dtype=bool)
+
     for y in range(0, rows - ph + 1, ph):
         for x in range(0, cols - pw + 1, pw):
-            cx = x + pw // 2
-            cy = y + ph // 2
-            if inside_outline(cx, cy, shifted_outline):
+            inside_patch = all(
+                inside_outline(x + dx + 0.5, y + dy + 0.5, shifted_outline)
+                for dy in range(ph) for dx in range(pw)
+            )
+            if inside_patch:
                 for dy in range(ph):
                     for dx in range(pw):
-                        char = pattern[dy, dx]
                         gx = x + dx
                         gy = y + dy
                         if 0 <= gx < cols and 0 <= gy < rows:
+                            char = pattern[dy, dx]
                             ax.text(gx + 0.48, rows - gy - 0.48, char,
                                     fontsize=3, ha='center', va='center',
-                                    family='monospace')
+                                    fontproperties=mono_font_prop)
+                            filled[gy, gx] = True
 
-    ax.plot(shifted_outline[:, 0], rows - shifted_outline[:, 1], color=color, linewidth=0.7)
+    if fill_pattern is not None:
+        fh, fw = fill_pattern.shape
+        for gy in range(rows):
+            for gx in range(cols):
+                if not filled[gy, gx] and inside_outline(gx + 0.5, gy + 0.5, shifted_outline):
+                    dy = gy % fh
+                    dx = gx % fw
+                    char = fill_pattern[dy, dx]
+                    ax.text(gx + 0.48, rows - gy - 0.48, char,
+                            fontsize=3, ha='center', va='center',
+                            fontproperties=mono_font_prop)
+
+    closed_outline = np.vstack([shifted_outline, shifted_outline[0]])
+    ax.plot(closed_outline[:, 0], rows - closed_outline[:, 1],
+            color=color, linewidth=1.2)
 
     lx, ly = cols - 1, -10
     for i, (s, desc) in enumerate(legend_items):
@@ -147,8 +154,12 @@ grid_size = (200, 150)
 front_scaled = auto_scale_outline(front_outline, grid_size)
 sleeve_scaled = auto_scale_outline(sleeve_outline, grid_size)
 
-fig_front = plot_pattern_with_legend(grid_size, front_scaled, patterns_array[0])
-fig_sleeve = plot_pattern_with_legend(grid_size, sleeve_scaled, patterns_array[1])
+fig_front = plot_pattern_with_legend(
+    grid_size, front_scaled, patterns_array[0], fill_pattern=patterns_array[2]
+)
+fig_sleeve = plot_pattern_with_legend(
+    grid_size, sleeve_scaled, patterns_array[1], fill_pattern=patterns_array[2]
+)
 
 with PdfPages("grid.pdf") as pdf:
     pdf.savefig(fig_front)
